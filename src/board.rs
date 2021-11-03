@@ -49,10 +49,9 @@ fn color_squares(
 ) {
     // Get entity under the cursor, if there is one
     let top_entity = match picking_camera_query.iter().last() {
-        Some(picking_camera) => match picking_camera.intersect_top() {
-            Some((entity, _intersection)) => Some(entity),
-            None => None,
-        },
+        Some(picking_camera) => picking_camera
+            .intersect_top()
+            .map(|(entity, _intersection)| entity),
         None => None,
     };
 

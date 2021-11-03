@@ -35,7 +35,7 @@ fn setup(mut commands: Commands) {
         .spawn_bundle(PerspectiveCameraBundle {
             transform: Transform::from_matrix(Mat4::from_rotation_translation(
                 Quat::from_xyzw(-0.3, -0.5, -0.3, 0.5).normalize(),
-                Vec3::new(-7.0, 20.0, 4.0),
+                Vec3::new(-3.0, 12.0, 3.5),
             )),
             ..Default::default()
         })
