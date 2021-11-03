@@ -202,7 +202,7 @@ fn move_piece(
     };
 
     if let Some(selected_piece_entity) = selected_piece.entity {
-        let pieces_vec = pieces_query.iter_mut().map(|(_, piece)| *piece).collect();
+        let pieces_vec: Vec<_> = pieces_query.iter_mut().map(|(_, piece)| *piece).collect();
         let pieces_entity_vec = pieces_query
             .iter_mut()
             .map(|(entity, piece)| (entity, *piece))
@@ -215,27 +215,49 @@ fn move_piece(
                 return;
             };
 
-        if piece.is_move_valid((square.x, square.y), pieces_vec) {
-            // Check if a piece of the opposite color exists in this square and despawn it
-            for (other_entity, other_piece) in pieces_entity_vec {
-                if other_piece.x == square.x
-                    && other_piece.y == square.y
-                    && other_piece.color != piece.color
-                {
-                    // Mark the piece as taken
-                    commands.entity(other_entity).insert(Taken);
-                }
+        reset_selected_event.send(ResetSelectedEvent);
+
+        if !piece.is_move_valid((square.x, square.y), &pieces_vec) {
+            return;
+        }
+        // Check if a piece of the opposite color exists in this square and despawn it
+        for (other_entity, other_piece) in pieces_entity_vec.iter() {
+            if other_piece.x == square.x && other_piece.y == square.y {
+                // Mark the piece as taken
+                commands.entity(*other_entity).insert(Taken);
             }
-
-            // Move piece
-            piece.x = square.x;
-            piece.y = square.y;
-
-            // Change turn
-            turn.change();
         }
 
-        reset_selected_event.send(ResetSelectedEvent);
+        let should_castle =
+            piece.piece_type == PieceType::King && (square.y as i8 - piece.y as i8).abs() == 2;
+
+        // Move piece
+        piece.x = square.x;
+        piece.y = square.y;
+        piece.has_moved = true;
+
+        // Castle
+        if should_castle {
+            let rook_y = match square.y {
+                6 => 7,
+                2 => 0,
+                _ => panic!("illegal castle"),
+            };
+            let (rook_entity, _) = pieces_entity_vec
+                .iter()
+                .find(|(_, candidate)| {
+                    candidate.piece_type == PieceType::Rook
+                        && candidate.y == rook_y
+                        && candidate.color == piece.color
+                })
+                .unwrap();
+            let (_, mut rook) = pieces_query.get_mut(*rook_entity).unwrap();
+            rook.y = if rook_y == 7 { 5 } else { 3 };
+            rook.has_moved = true;
+        }
+
+        // Change turn
+        turn.change();
     }
 }
 

@@ -22,39 +22,61 @@ pub enum PieceType {
 pub struct Piece {
     pub color: PieceColor,
     pub piece_type: PieceType,
+    pub has_moved: bool,
     // Current position
     pub x: u8,
     pub y: u8,
 }
 impl Piece {
     /// Returns the possible_positions that are available
-    pub fn is_move_valid(&self, new_position: (u8, u8), pieces: Vec<Piece>) -> bool {
+    pub fn is_move_valid(&self, new_position: (u8, u8), pieces: &[Piece]) -> bool {
         // If there's a piece of the same color in the same square, it can't move
-        if color_of_square(new_position, &pieces) == Some(self.color) {
+        if color_of_square(new_position, pieces) == Some(self.color) {
             return false;
         }
 
         match self.piece_type {
             PieceType::King => {
-                // Horizontal
+                // Vertical
                 ((self.x as i8 - new_position.0 as i8).abs() == 1
                     && (self.y == new_position.1))
-                // Vertical
+                // Horizontal
                 || ((self.y as i8 - new_position.1 as i8).abs() == 1
                     && (self.x == new_position.0))
                 // Diagonal
                 || ((self.x as i8 - new_position.0 as i8).abs() == 1
                     && (self.y as i8 - new_position.1 as i8).abs() == 1)
+                // Castling
+                || (!self.has_moved
+                    && (self.x == new_position.0)
+                    // Short
+                    && ((new_position.1 == 6
+                        && is_path_empty((self.x, self.y), new_position, pieces)
+                        && pieces.iter().any(|&piece| {
+                            piece.piece_type == PieceType::Rook
+                            && !piece.has_moved
+                            && piece.color == self.color
+                            && piece.y == 7
+                        }))
+                        // Long
+                        || (new_position.1 == 2
+                        && is_path_empty((self.x, self.y), (self.x, 1), pieces)
+                        && pieces.iter().any(|&piece| {
+                            piece.piece_type == PieceType::Rook
+                            && !piece.has_moved
+                            && piece.color == self.color
+                            && piece.y == 0
+                        }))))
             }
             PieceType::Queen => {
-                is_path_empty((self.x, self.y), new_position, &pieces)
+                is_path_empty((self.x, self.y), new_position, pieces)
                     && ((self.x as i8 - new_position.0 as i8).abs()
                         == (self.y as i8 - new_position.1 as i8).abs()
                         || ((self.x == new_position.0 && self.y != new_position.1)
                             || (self.y == new_position.1 && self.x != new_position.0)))
             }
             PieceType::Bishop => {
-                is_path_empty((self.x, self.y), new_position, &pieces)
+                is_path_empty((self.x, self.y), new_position, pieces)
                     && (self.x as i8 - new_position.0 as i8).abs()
                         == (self.y as i8 - new_position.1 as i8).abs()
             }
@@ -65,7 +87,7 @@ impl Piece {
                         && (self.y as i8 - new_position.1 as i8).abs() == 2)
             }
             PieceType::Rook => {
-                is_path_empty((self.x, self.y), new_position, &pieces)
+                is_path_empty((self.x, self.y), new_position, pieces)
                     && ((self.x == new_position.0 && self.y != new_position.1)
                         || (self.y == new_position.1 && self.x != new_position.0))
             }
@@ -74,7 +96,7 @@ impl Piece {
                     // Normal move
                     if new_position.0 as i8 - self.x as i8 == 1
                         && (self.y == new_position.1)
-                        && color_of_square(new_position, &pieces).is_none()
+                        && color_of_square(new_position, pieces).is_none()
                     {
                         return true;
                     }
@@ -83,8 +105,8 @@ impl Piece {
                     if self.x == 1
                         && new_position.0 as i8 - self.x as i8 == 2
                         && (self.y == new_position.1)
-                        && is_path_empty((self.x, self.y), new_position, &pieces)
-                        && color_of_square(new_position, &pieces).is_none()
+                        && is_path_empty((self.x, self.y), new_position, pieces)
+                        && color_of_square(new_position, pieces).is_none()
                     {
                         return true;
                     }
@@ -92,7 +114,7 @@ impl Piece {
                     // Take piece
                     if new_position.0 as i8 - self.x as i8 == 1
                         && (self.y as i8 - new_position.1 as i8).abs() == 1
-                        && color_of_square(new_position, &pieces) == Some(PieceColor::Black)
+                        && color_of_square(new_position, pieces) == Some(PieceColor::Black)
                     {
                         return true;
                     }
@@ -100,7 +122,7 @@ impl Piece {
                     // Normal move
                     if new_position.0 as i8 - self.x as i8 == -1
                         && (self.y == new_position.1)
-                        && color_of_square(new_position, &pieces).is_none()
+                        && color_of_square(new_position, pieces).is_none()
                     {
                         return true;
                     }
@@ -109,8 +131,8 @@ impl Piece {
                     if self.x == 6
                         && new_position.0 as i8 - self.x as i8 == -2
                         && (self.y == new_position.1)
-                        && is_path_empty((self.x, self.y), new_position, &pieces)
-                        && color_of_square(new_position, &pieces).is_none()
+                        && is_path_empty((self.x, self.y), new_position, pieces)
+                        && color_of_square(new_position, pieces).is_none()
                     {
                         return true;
                     }
@@ -118,7 +140,7 @@ impl Piece {
                     // Take piece
                     if new_position.0 as i8 - self.x as i8 == -1
                         && (self.y as i8 - new_position.1 as i8).abs() == 1
-                        && color_of_square(new_position, &pieces) == Some(PieceColor::White)
+                        && color_of_square(new_position, pieces) == Some(PieceColor::White)
                     {
                         return true;
                     }
@@ -298,6 +320,7 @@ fn spawn_piece(
         .insert(Piece {
             color: piece_color,
             piece_type,
+            has_moved: false,
             x: position.0,
             y: position.1,
         })
