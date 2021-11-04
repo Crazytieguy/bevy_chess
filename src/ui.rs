@@ -2,7 +2,7 @@ use crate::{board::*, pieces::*};
 use bevy::prelude::*;
 
 // Component to mark the Text entity
-struct NextMoveText;
+struct StatusText;
 
 /// Initialize UiCamera and text
 fn init_next_move_text(
@@ -44,23 +44,38 @@ fn init_next_move_text(
                     ),
                     ..Default::default()
                 })
-                .insert(NextMoveText);
+                .insert(StatusText);
         });
 }
 
 /// Update text with the correct turn
-fn next_move_text_update(turn: Res<PlayerTurn>, mut query: Query<(&mut Text, &NextMoveText)>) {
+fn update_status(
+    turn: Res<PlayerTurn>,
+    mut text_query: Query<(&mut Text, &StatusText)>,
+    pieces: Query<&Piece>,
+) {
     if !turn.is_changed() {
         return;
     }
-    for (mut text, _tag) in query.iter_mut() {
-        text.sections[0].value = format!(
+    let pieces: Vec<_> = pieces.iter().copied().collect();
+    let text_value = match is_check_mate_on(&pieces, turn.0) {
+        true => format!(
+            "{} Wins!",
+            match turn.0 {
+                PieceColor::White => "Black",
+                PieceColor::Black => "White",
+            }
+        ),
+        false => format!(
             "Next move: {}",
             match turn.0 {
                 PieceColor::White => "White",
                 PieceColor::Black => "Black",
             }
-        );
+        ),
+    };
+    if let Some((mut text, _tag)) = text_query.iter_mut().next() {
+        text.sections[0].value = text_value;
     }
 }
 
@@ -75,7 +90,7 @@ pub struct UIPlugin;
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut AppBuilder) {
         app.add_startup_system(init_next_move_text.system())
-            .add_system(next_move_text_update.system())
+            .add_system(update_status.system())
             .add_system(log_text_changes.system());
     }
 }

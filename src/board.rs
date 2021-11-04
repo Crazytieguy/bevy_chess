@@ -1,5 +1,5 @@
 use crate::pieces::*;
-use bevy::{app::AppExit, prelude::*};
+use bevy::prelude::*;
 use bevy_mod_picking::*;
 
 pub struct Square {
@@ -8,19 +8,6 @@ pub struct Square {
 impl Square {
     fn is_white(&self) -> bool {
         (self.pos.x + self.pos.y + 1) % 2 == 0
-    }
-}
-
-struct KingPositions {
-    white: IVec2,
-    black: IVec2,
-}
-impl Default for KingPositions {
-    fn default() -> Self {
-        Self {
-            white: IVec2::new(0, 5),
-            black: IVec2::new(7, 5),
-        }
     }
 }
 
@@ -119,10 +106,7 @@ impl Default for PlayerTurn {
 }
 impl PlayerTurn {
     fn change(&mut self) {
-        self.0 = match self.0 {
-            PieceColor::White => PieceColor::Black,
-            PieceColor::Black => PieceColor::White,
-        }
+        self.0 = self.0.other();
     }
 }
 
@@ -164,16 +148,14 @@ fn select_piece(
         return;
     }
 
-    let square_entity = if let Some(entity) = selected_square.entity {
-        entity
-    } else {
-        return;
+    let square_entity = match selected_square.entity {
+        Some(v) => v,
+        _ => return,
     };
 
-    let square = if let Ok(square) = squares_query.get(square_entity) {
-        square
-    } else {
-        return;
+    let square = match squares_query.get(square_entity) {
+        Ok(v) => v,
+        _ => return,
     };
 
     if selected_piece.entity.is_none() {
@@ -192,7 +174,6 @@ fn move_piece(
     mut commands: Commands,
     selected_square: Res<SelectedSquare>,
     selected_piece: Res<SelectedPiece>,
-    mut king_positions: ResMut<KingPositions>,
     mut turn: ResMut<PlayerTurn>,
     squares_query: Query<&Square>,
     mut pieces_query: Query<(Entity, &mut Piece)>,
@@ -206,21 +187,18 @@ fn move_piece(
         Some(v) => v,
         _ => return,
     };
-
     let square = match squares_query.get(square_entity) {
         Ok(v) => v,
         _ => return,
     };
-
     let selected_piece_entity = match selected_piece.entity {
         Some(v) => v,
         _ => return,
     };
-
     let pieces_before_move: Vec<_> = pieces_query.iter_mut().map(|(_, piece)| *piece).collect();
 
-    let mut piece = match pieces_query.get_mut(selected_piece_entity) {
-        Ok((_, piece)) => piece,
+    let (_, mut piece) = match pieces_query.get_mut(selected_piece_entity) {
+        Ok(v) => v,
         _ => return,
     };
 
@@ -231,34 +209,9 @@ fn move_piece(
         return;
     }
 
-    // Check for resulting check
-    let ally_king_position = if piece.piece_type == PieceType::King {
-        square.pos
-    } else {
-        match piece_color {
-            PieceColor::White => king_positions.white,
-            PieceColor::Black => king_positions.black,
-        }
-    };
-    let pieces_after_move: Vec<_> = pieces_before_move
-        .iter()
-        .map(|&p| {
-            if p.pos == piece.pos {
-                Piece {
-                    pos: square.pos,
-                    ..p
-                }
-            } else {
-                p
-            }
-        })
-        .collect();
-    for attacker in pieces_before_move {
-        if attacker.color != piece_color
-            && attacker.is_move_valid(ally_king_position, &pieces_after_move)
-        {
-            return;
-        }
+    let pieces_after_move: Vec<_> = piece.get_pieces_after_move(square.pos, &pieces_before_move);
+    if is_check_on(&pieces_after_move, piece_color) {
+        return;
     }
     let should_castle =
         piece.piece_type == PieceType::King && (square.pos.y - piece.pos.y).abs() == 2;
@@ -266,12 +219,6 @@ fn move_piece(
     // Move piece
     piece.pos = square.pos;
     piece.has_moved = true;
-    if piece.piece_type == PieceType::King {
-        match piece_color {
-            PieceColor::White => king_positions.white = square.pos,
-            PieceColor::Black => king_positions.black = square.pos,
-        }
-    }
     turn.change();
 
     // Check if a piece of the opposite color exists in this square and despawn it
@@ -279,7 +226,7 @@ fn move_piece(
         .iter_mut()
         .find(|(_, other)| other.pos == square.pos && other.color != piece_color)
     {
-        commands.entity(entity).insert(Taken);
+        commands.entity(entity).despawn_recursive();
     };
     // Castle
     if should_castle {
@@ -310,30 +257,6 @@ fn reset_selected(
     }
 }
 
-struct Taken;
-fn despawn_taken_pieces(
-    mut commands: Commands,
-    mut app_exit_events: EventWriter<AppExit>,
-    query: Query<(Entity, &Piece, &Taken)>,
-) {
-    for (entity, piece, _taken) in query.iter() {
-        // If the king is taken, we should exit
-        if piece.piece_type == PieceType::King {
-            println!(
-                "{} won! Thanks for playing!",
-                match piece.color {
-                    PieceColor::White => "Black",
-                    PieceColor::Black => "White",
-                }
-            );
-            app_exit_events.send(AppExit);
-        }
-
-        // Despawn piece and children
-        commands.entity(entity).despawn_recursive();
-    }
-}
-
 pub struct BoardPlugin;
 impl Plugin for BoardPlugin {
     fn build(&self, app: &mut AppBuilder) {
@@ -341,7 +264,6 @@ impl Plugin for BoardPlugin {
             .init_resource::<SelectedPiece>()
             .init_resource::<SquareMaterials>()
             .init_resource::<PlayerTurn>()
-            .init_resource::<KingPositions>()
             .add_event::<ResetSelectedEvent>()
             .add_startup_system(create_board.system())
             .add_system(color_squares.system())
@@ -359,7 +281,6 @@ impl Plugin for BoardPlugin {
                     .after("select_square")
                     .label("select_piece"),
             )
-            .add_system(despawn_taken_pieces.system())
             .add_system(reset_selected.system().after("select_square"));
     }
 }

@@ -9,6 +9,15 @@ pub enum PieceColor {
     Black,
 }
 
+impl PieceColor {
+    pub fn other(&self) -> Self {
+        match self {
+            PieceColor::Black => PieceColor::White,
+            PieceColor::White => PieceColor::Black,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PieceType {
     King,
@@ -21,7 +30,7 @@ pub enum PieceType {
 
 const LAYOUT: [PieceType; 8] = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook];
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Piece {
     pub color: PieceColor,
     pub piece_type: PieceType,
@@ -31,22 +40,26 @@ pub struct Piece {
 impl Piece {
     /// Returns the possible_positions that are available
     pub fn is_move_valid(&self, target: IVec2, pieces: &[Piece]) -> bool {
-        // If there's a piece of the same color in the same square, it can't move
-        let color_of_target = color_of_square(target, pieces);
-        if color_of_target == Some(self.color) {
-            return false;
-        }
+        let mut _color_of_target = None;
+        let mut color_of_target = || match _color_of_target {
+            Some(v) => v,
+            None => {
+                _color_of_target = Some(color_of_square(target, pieces));
+                _color_of_target.unwrap()
+            }
+        };
         let diff = target - self.pos;
         let signum = diff.signum();
 
         match self.piece_type {
             King => {
-                diff.abs() <= IVec2::ONE
+                (diff.abs() <= IVec2::ONE
+                && color_of_target() != Some(self.color))
                 // Castling
                 || !self.has_moved
                     && diff.x == 0
                     && diff.y.abs() == 2
-                    && is_path_empty(self.pos, target + signum, pieces)
+                    && is_path_empty(self.pos, target + signum + if signum.y == -1 {signum} else {IVec2::ZERO}, pieces)
                     && pieces.iter().any(|&piece| {
                         piece.piece_type == Rook
                         && !piece.has_moved
@@ -54,35 +67,92 @@ impl Piece {
                     })
             }
             Queen => {
-                diff == signum * diff.abs().max_element() && is_path_empty(self.pos, target, pieces)
+                diff == signum * diff.abs().max_element()
+                    && is_path_empty(self.pos, target, pieces)
+                    && color_of_target() != Some(self.color)
             }
-            Bishop => diff.x.abs() == diff.y.abs() && is_path_empty(self.pos, target, pieces),
-            Knight => diff.abs() == IVec2::new(1, 2) || diff.abs() == IVec2::new(2, 1),
-            Rook => signum.x * signum.y == 0 && is_path_empty(self.pos, target, pieces),
+            Bishop => {
+                diff.x.abs() == diff.y.abs()
+                    && is_path_empty(self.pos, target, pieces)
+                    && color_of_target() != Some(self.color)
+            }
+            Knight => {
+                (diff.abs() == IVec2::new(1, 2) || diff.abs() == IVec2::new(2, 1))
+                    && color_of_target() != Some(self.color)
+            }
+            Rook => {
+                signum.x * signum.y == 0
+                    && is_path_empty(self.pos, target, pieces)
+                    && color_of_target() != Some(self.color)
+            }
             Pawn => {
                 let direction = match self.color {
                     PieceColor::White => 1,
                     PieceColor::Black => -1,
                 };
                 // Normal move
-                diff.x == direction
+                (diff.x == direction
                     && diff.y == 0
-                    && color_of_target.is_none()
+                    && is_path_empty(self.pos, target + signum, pieces))
 
                     // Double move
-                    || !self.has_moved
+                    || (!self.has_moved
                     && diff.x == direction * 2
                     && diff.y == 0
-                    && color_of_target.is_none()
-                    && is_path_empty(self.pos, target, pieces)
+                    && is_path_empty(self.pos, target + signum, pieces))
 
                     // Take piece
-                    || diff.x == direction
+                    || (diff.x == direction
                         && diff.y.abs() == 1
-                        && color_of_target.is_some()
+                        && color_of_target() == Some(self.color.other()))
             }
         }
     }
+
+    pub fn get_pieces_after_move(&self, new_pos: IVec2, pieces: &[Piece]) -> Vec<Self> {
+        pieces
+            .iter()
+            .filter(|p| p.pos != new_pos)
+            .map(|&p| {
+                if p != *self {
+                    p
+                } else {
+                    Piece { pos: new_pos, ..p }
+                }
+            })
+            .collect()
+    }
+}
+
+pub fn is_check_on(pieces: &[Piece], color: PieceColor) -> bool {
+    let ally_king_position = pieces
+        .iter()
+        .find(|p| p.piece_type == PieceType::King && p.color == color)
+        .unwrap()
+        .pos;
+
+    pieces.iter().any(|attacker| {
+        attacker.color != color && attacker.is_move_valid(ally_king_position, pieces)
+    })
+}
+
+pub fn is_check_mate_on(pieces: &[Piece], color: PieceColor) -> bool {
+    for &piece in pieces.iter() {
+        if piece.color != color {
+            continue;
+        }
+        for i in 0..64 {
+            let new_pos = (i % 8, i / 8).into();
+            if !piece.is_move_valid(new_pos, pieces) {
+                continue;
+            }
+            let pieces_after_move: Vec<_> = piece.get_pieces_after_move(new_pos, pieces);
+            if !is_check_on(&pieces_after_move, color) {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn is_path_empty(begin: IVec2, end: IVec2, pieces: &[Piece]) -> bool {
