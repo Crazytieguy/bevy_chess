@@ -1,5 +1,6 @@
 use std::f32::consts::PI;
 
+use self::PieceType::*;
 use bevy::prelude::*;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -17,6 +18,8 @@ pub enum PieceType {
     Rook,
     Pawn,
 }
+
+const LAYOUT: [PieceType; 8] = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook];
 
 #[derive(Clone, Copy)]
 pub struct Piece {
@@ -37,7 +40,7 @@ impl Piece {
         let signum = diff.signum();
 
         match self.piece_type {
-            PieceType::King => {
+            King => {
                 diff.abs() <= IVec2::ONE
                 // Castling
                 || !self.has_moved
@@ -45,20 +48,18 @@ impl Piece {
                     && diff.y.abs() == 2
                     && is_path_empty(self.pos, target + signum, pieces)
                     && pieces.iter().any(|&piece| {
-                        piece.piece_type == PieceType::Rook
+                        piece.piece_type == Rook
                         && !piece.has_moved
                         && (piece.pos - self.pos).signum() == signum
                     })
             }
-            PieceType::Queen => {
+            Queen => {
                 diff == signum * diff.abs().max_element() && is_path_empty(self.pos, target, pieces)
             }
-            PieceType::Bishop => {
-                diff.x.abs() == diff.y.abs() && is_path_empty(self.pos, target, pieces)
-            }
-            PieceType::Knight => diff.abs() == IVec2::new(1, 2) || diff.abs() == IVec2::new(2, 1),
-            PieceType::Rook => signum.x * signum.y == 0 && is_path_empty(self.pos, target, pieces),
-            PieceType::Pawn => {
+            Bishop => diff.x.abs() == diff.y.abs() && is_path_empty(self.pos, target, pieces),
+            Knight => diff.abs() == IVec2::new(1, 2) || diff.abs() == IVec2::new(2, 1),
+            Rook => signum.x * signum.y == 0 && is_path_empty(self.pos, target, pieces),
+            Pawn => {
                 let direction = match self.color {
                     PieceColor::White => 1,
                     PieceColor::Black => -1,
@@ -146,90 +147,53 @@ fn create_pieces(
     let white_material = materials.add(Color::rgb(1., 0.8, 0.8).into());
     let black_material = materials.add(Color::rgb(0.3, 0.3, 0.3).into());
 
-    let mut handle_positions = vec![
-        (vec![rook_handle.clone()], (0, 0), PieceType::Rook),
-        (
-            vec![knight_base_handle.clone(), knight_head_handle.clone()],
-            (0, 1),
-            PieceType::Knight,
-        ),
-        (vec![bishop_handle.clone()], (0, 2), PieceType::Bishop),
-        (vec![queen_handle], (0, 3), PieceType::Queen),
-        (
-            vec![king_body_handle, king_cross_handle],
-            (0, 4),
-            PieceType::King,
-        ),
-        (vec![bishop_handle], (0, 5), PieceType::Bishop),
-        (
-            vec![knight_base_handle, knight_head_handle],
-            (0, 6),
-            PieceType::Knight,
-        ),
-        (vec![rook_handle], (0, 7), PieceType::Rook),
-    ];
-    for i in 0..8 {
-        handle_positions.push((vec![pawn_handle.clone()], (1, i), PieceType::Pawn))
-    }
+    let mut spawn_piece = |piece_color, x, y, piece_type| {
+        let meshes = match piece_type {
+            Rook => vec![rook_handle.clone()],
+            Knight => vec![knight_base_handle.clone(), knight_head_handle.clone()],
+            Bishop => vec![bishop_handle.clone()],
+            Queen => vec![queen_handle.clone()],
+            King => vec![king_body_handle.clone(), king_cross_handle.clone()],
+            Pawn => vec![pawn_handle.clone()],
+        };
+        commands
+            .spawn_bundle(PbrBundle {
+                transform: Transform {
+                    translation: Vec3::new(x as f32, 0., y as f32),
+                    scale: Vec3::new(0.2, 0.2, 0.2),
+                    rotation: Quat::from_rotation_y(match piece_color {
+                        PieceColor::Black => PI,
+                        PieceColor::White => 0.,
+                    }),
+                },
+                ..Default::default()
+            })
+            .insert(Piece {
+                color: piece_color,
+                piece_type,
+                has_moved: false,
+                pos: (x, y).into(),
+            })
+            .with_children(|parent| {
+                for mesh in meshes {
+                    parent.spawn_bundle(PbrBundle {
+                        mesh: mesh.clone(),
+                        material: match piece_color {
+                            PieceColor::White => white_material.clone(),
+                            PieceColor::Black => black_material.clone(),
+                        },
+                        ..Default::default()
+                    });
+                }
+            });
+    };
 
-    for (meshes, (x, y), piece_type) in handle_positions.iter() {
-        spawn_piece(
-            &mut commands,
-            white_material.clone(),
-            PieceColor::White,
-            meshes,
-            (*x, *y).into(),
-            *piece_type,
-        )
+    for (&piece_type, y) in LAYOUT.iter().zip(0..) {
+        spawn_piece(PieceColor::White, 0, y, piece_type);
+        spawn_piece(PieceColor::White, 1, y, Pawn);
+        spawn_piece(PieceColor::Black, 7, y, piece_type);
+        spawn_piece(PieceColor::Black, 6, y, Pawn);
     }
-
-    for (meshes, (x, y), piece_type) in handle_positions.iter() {
-        spawn_piece(
-            &mut commands,
-            black_material.clone(),
-            PieceColor::Black,
-            meshes,
-            (7 - *x, *y).into(),
-            *piece_type,
-        )
-    }
-}
-
-fn spawn_piece(
-    commands: &mut Commands,
-    material: Handle<StandardMaterial>,
-    piece_color: PieceColor,
-    meshes: &[Handle<Mesh>],
-    pos: IVec2,
-    piece_type: PieceType,
-) {
-    commands
-        .spawn_bundle(PbrBundle {
-            transform: Transform {
-                translation: Vec3::new(pos.x as f32, 0., pos.y as f32),
-                scale: Vec3::new(0.2, 0.2, 0.2),
-                rotation: Quat::from_rotation_y(match piece_color {
-                    PieceColor::Black => PI,
-                    PieceColor::White => 0.,
-                }),
-            },
-            ..Default::default()
-        })
-        .insert(Piece {
-            color: piece_color,
-            piece_type,
-            has_moved: false,
-            pos,
-        })
-        .with_children(|parent| {
-            for mesh in meshes.iter() {
-                parent.spawn_bundle(PbrBundle {
-                    mesh: mesh.clone(),
-                    material: material.clone(),
-                    ..Default::default()
-                });
-            }
-        });
 }
 
 pub struct PiecesPlugin;
