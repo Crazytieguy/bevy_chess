@@ -11,6 +11,19 @@ impl Square {
     }
 }
 
+struct KingPositions {
+    white: IVec2,
+    black: IVec2,
+}
+impl Default for KingPositions {
+    fn default() -> Self {
+        Self {
+            white: IVec2::new(0, 5),
+            black: IVec2::new(7, 5),
+        }
+    }
+}
+
 fn create_board(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -179,6 +192,7 @@ fn move_piece(
     mut commands: Commands,
     selected_square: Res<SelectedSquare>,
     selected_piece: Res<SelectedPiece>,
+    mut king_positions: ResMut<KingPositions>,
     mut turn: ResMut<PlayerTurn>,
     squares_query: Query<&Square>,
     mut pieces_query: Query<(Entity, &mut Piece)>,
@@ -188,69 +202,98 @@ fn move_piece(
         return;
     }
 
-    let square_entity = if let Some(entity) = selected_square.entity {
-        entity
-    } else {
-        return;
+    let square_entity = match selected_square.entity {
+        Some(v) => v,
+        _ => return,
     };
 
-    let square = if let Ok(square) = squares_query.get(square_entity) {
-        square
-    } else {
-        return;
+    let square = match squares_query.get(square_entity) {
+        Ok(v) => v,
+        _ => return,
     };
 
-    if let Some(selected_piece_entity) = selected_piece.entity {
-        let pieces_vec: Vec<_> = pieces_query.iter_mut().map(|(_, piece)| *piece).collect();
-        let pieces_entity_vec = pieces_query
-            .iter_mut()
-            .map(|(entity, piece)| (entity, *piece))
-            .collect::<Vec<(Entity, Piece)>>();
-        // Move the selected piece to the selected square
-        let mut piece =
-            if let Ok((_piece_entity, piece)) = pieces_query.get_mut(selected_piece_entity) {
-                piece
+    let selected_piece_entity = match selected_piece.entity {
+        Some(v) => v,
+        _ => return,
+    };
+
+    let pieces_before_move: Vec<_> = pieces_query.iter_mut().map(|(_, piece)| *piece).collect();
+
+    let mut piece = match pieces_query.get_mut(selected_piece_entity) {
+        Ok((_, piece)) => piece,
+        _ => return,
+    };
+
+    reset_selected_event.send(ResetSelectedEvent);
+
+    let piece_color = piece.color;
+    if !piece.is_move_valid(square.pos, &pieces_before_move) {
+        return;
+    }
+
+    // Check for resulting check
+    let ally_king_position = if piece.piece_type == PieceType::King {
+        square.pos
+    } else {
+        match piece_color {
+            PieceColor::White => king_positions.white,
+            PieceColor::Black => king_positions.black,
+        }
+    };
+    let pieces_after_move: Vec<_> = pieces_before_move
+        .iter()
+        .map(|&p| {
+            if p.pos == piece.pos {
+                Piece {
+                    pos: square.pos,
+                    ..p
+                }
             } else {
-                return;
-            };
-
-        reset_selected_event.send(ResetSelectedEvent);
-
-        if !piece.is_move_valid(square.pos, &pieces_vec) {
+                p
+            }
+        })
+        .collect();
+    for attacker in pieces_before_move {
+        if attacker.color != piece_color
+            && attacker.is_move_valid(ally_king_position, &pieces_after_move)
+        {
             return;
         }
-        // Check if a piece of the opposite color exists in this square and despawn it
-        for (other_entity, other_piece) in pieces_entity_vec.iter() {
-            if other_piece.pos == square.pos {
-                // Mark the piece as taken
-                commands.entity(*other_entity).insert(Taken);
-            }
+    }
+    let should_castle =
+        piece.piece_type == PieceType::King && (square.pos.y - piece.pos.y).abs() == 2;
+
+    // Move piece
+    piece.pos = square.pos;
+    piece.has_moved = true;
+    if piece.piece_type == PieceType::King {
+        match piece_color {
+            PieceColor::White => king_positions.white = square.pos,
+            PieceColor::Black => king_positions.black = square.pos,
         }
+    }
+    turn.change();
 
-        let should_castle =
-            piece.piece_type == PieceType::King && (square.pos.y - piece.pos.y).abs() == 2;
-
-        // Move piece
-        piece.pos = square.pos;
-        piece.has_moved = true;
-
-        // Castle
-        if should_castle {
-            let (rook_entity, _) = pieces_entity_vec
-                .iter()
-                .find(|(_, candidate)| {
-                    candidate.piece_type == PieceType::Rook
-                        && candidate.pos.y == (if square.pos.y == 6 { 7 } else { 0 })
-                        && candidate.color == piece.color
-                })
-                .unwrap();
-            let (_, mut rook) = pieces_query.get_mut(*rook_entity).unwrap();
-            rook.pos.y = if square.pos.y == 6 { 5 } else { 3 };
-            rook.has_moved = true;
-        }
-
-        // Change turn
-        turn.change();
+    // Check if a piece of the opposite color exists in this square and despawn it
+    if let Some((entity, _)) = pieces_query
+        .iter_mut()
+        .find(|(_, other)| other.pos == square.pos && other.color != piece_color)
+    {
+        commands.entity(entity).insert(Taken);
+    };
+    // Castle
+    if should_castle {
+        let (rook_entity, _) = pieces_query
+            .iter_mut()
+            .find(|(_, candidate)| {
+                candidate.piece_type == PieceType::Rook
+                    && candidate.pos.y == (if square.pos.y == 6 { 7 } else { 0 })
+                    && candidate.color == piece_color
+            })
+            .unwrap();
+        let (_, mut rook) = pieces_query.get_mut(rook_entity).unwrap();
+        rook.pos.y = if square.pos.y == 6 { 5 } else { 3 };
+        rook.has_moved = true;
     }
 }
 
@@ -298,6 +341,7 @@ impl Plugin for BoardPlugin {
             .init_resource::<SelectedPiece>()
             .init_resource::<SquareMaterials>()
             .init_resource::<PlayerTurn>()
+            .init_resource::<KingPositions>()
             .add_event::<ResetSelectedEvent>()
             .add_startup_system(create_board.system())
             .add_system(color_squares.system())
