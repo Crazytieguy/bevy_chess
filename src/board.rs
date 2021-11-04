@@ -3,12 +3,11 @@ use bevy::{app::AppExit, prelude::*};
 use bevy_mod_picking::*;
 
 pub struct Square {
-    pub x: u8,
-    pub y: u8,
+    pub pos: IVec2,
 }
 impl Square {
     fn is_white(&self) -> bool {
-        (self.x + self.y + 1) % 2 == 0
+        (self.pos.x + self.pos.y + 1) % 2 == 0
     }
 }
 
@@ -36,7 +35,7 @@ fn create_board(
                     ..Default::default()
                 })
                 .insert_bundle(PickableBundle::default())
-                .insert(Square { x: i, y: j });
+                .insert(Square { pos: (i, j).into() });
         }
     }
 }
@@ -167,7 +166,7 @@ fn select_piece(
     if selected_piece.entity.is_none() {
         // Select the piece in the currently selected square
         for (piece_entity, piece) in pieces_query.iter() {
-            if piece.x == square.x && piece.y == square.y && piece.color == turn.0 {
+            if piece.pos == square.pos && piece.color == turn.0 {
                 // piece_entity is now the entity in the same square
                 selected_piece.entity = Some(piece_entity);
                 break;
@@ -217,42 +216,36 @@ fn move_piece(
 
         reset_selected_event.send(ResetSelectedEvent);
 
-        if !piece.is_move_valid((square.x, square.y), &pieces_vec) {
+        if !piece.is_move_valid(square.pos, &pieces_vec) {
             return;
         }
         // Check if a piece of the opposite color exists in this square and despawn it
         for (other_entity, other_piece) in pieces_entity_vec.iter() {
-            if other_piece.x == square.x && other_piece.y == square.y {
+            if other_piece.pos == square.pos {
                 // Mark the piece as taken
                 commands.entity(*other_entity).insert(Taken);
             }
         }
 
         let should_castle =
-            piece.piece_type == PieceType::King && (square.y as i8 - piece.y as i8).abs() == 2;
+            piece.piece_type == PieceType::King && (square.pos.y - piece.pos.y).abs() == 2;
 
         // Move piece
-        piece.x = square.x;
-        piece.y = square.y;
+        piece.pos = square.pos;
         piece.has_moved = true;
 
         // Castle
         if should_castle {
-            let rook_y = match square.y {
-                6 => 7,
-                2 => 0,
-                _ => panic!("illegal castle"),
-            };
             let (rook_entity, _) = pieces_entity_vec
                 .iter()
                 .find(|(_, candidate)| {
                     candidate.piece_type == PieceType::Rook
-                        && candidate.y == rook_y
+                        && candidate.pos.y == (if square.pos.y == 6 { 7 } else { 0 })
                         && candidate.color == piece.color
                 })
                 .unwrap();
             let (_, mut rook) = pieces_query.get_mut(*rook_entity).unwrap();
-            rook.y = if rook_y == 7 { 5 } else { 3 };
+            rook.pos.y = if square.pos.y == 6 { 5 } else { 3 };
             rook.has_moved = true;
         }
 
