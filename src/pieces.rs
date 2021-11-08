@@ -183,7 +183,7 @@ fn color_of_square(pos: IVec2, pieces: &[Piece]) -> Option<PieceColor> {
         .map(|piece| piece.color)
 }
 
-const MOVE_TIME: f32 = 0.1;
+const MOVE_SPEED_CONST: f32 = 0.1;
 
 fn move_pieces(time: Res<Time>, mut query: Query<(&mut Transform, &Piece)>) {
     for (mut transform, piece) in query.iter_mut() {
@@ -192,8 +192,8 @@ fn move_pieces(time: Res<Time>, mut query: Query<(&mut Transform, &Piece)>) {
             Vec3::new(piece.pos.x as f32, 0., piece.pos.y as f32) - transform.translation;
 
         // Only move if the piece isn't already there (distance is big)
-        if direction.length() > 0.03 {
-            transform.translation += direction * time.delta_seconds() / MOVE_TIME;
+        if direction.length() > 0.01 {
+            transform.translation += direction * time.delta_seconds() / MOVE_SPEED_CONST;
         }
     }
 }

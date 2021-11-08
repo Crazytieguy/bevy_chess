@@ -49,30 +49,17 @@ fn init_next_move_text(
 }
 
 /// Update text with the correct turn
-fn update_status(
-    turn: Res<PlayerTurn>,
-    mut text_query: Query<(&mut Text, &StatusText)>,
-    pieces: Query<&Piece>,
-) {
-    if !turn.is_changed() {
+fn update_status(game_status: Res<GameStatus>, mut text_query: Query<(&mut Text, &StatusText)>) {
+    if !game_status.is_changed() {
         return;
     }
-    let pieces: Vec<_> = pieces.iter().copied().collect();
-    let text_value = match is_check_mate_on(&pieces, turn.0) {
-        true => format!(
-            "{} Wins!",
-            match turn.0 {
-                PieceColor::White => "Black",
-                PieceColor::Black => "White",
-            }
-        ),
-        false => format!(
-            "Next move: {}",
-            match turn.0 {
-                PieceColor::White => "White",
-                PieceColor::Black => "Black",
-            }
-        ),
+    let color_text = match game_status.color {
+        PieceColor::White => "White",
+        PieceColor::Black => "Black",
+    };
+    let text_value = match game_status.status_type {
+        StatusType::Win => format!("{} Wins!", color_text),
+        false => format!("Next move: {}", color_text),
     };
     if let Some((mut text, _tag)) = text_query.iter_mut().next() {
         text.sections[0].value = text_value;

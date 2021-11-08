@@ -1,6 +1,7 @@
-use crate::pieces::*;
 use bevy::prelude::*;
-use bevy_mod_picking::*;
+use bevy_mod_picking::{PickableBundle, PickingCamera};
+
+use crate::pieces::{is_check_mate_on, is_check_on, Piece, PieceColor, PieceType};
 
 pub struct Square {
     pub pos: IVec2,
@@ -81,11 +82,16 @@ impl FromWorld for SquareMaterials {
         let mut materials = world
             .get_resource_mut::<Assets<StandardMaterial>>()
             .unwrap();
+        let make_material = |r, g, b| StandardMaterial {
+            roughness: 0.5,
+            base_color: Color::rgb(r, g, b),
+            ..Default::default()
+        };
         SquareMaterials {
-            highlight_color: materials.add(Color::rgb(0.8, 0.3, 0.3).into()),
-            selected_color: materials.add(Color::rgb(0.9, 0.1, 0.1).into()),
-            black_color: materials.add(Color::rgb(0., 0.1, 0.1).into()),
-            white_color: materials.add(Color::rgb(1., 0.9, 0.9).into()),
+            highlight_color: materials.add(make_material(0.8, 0.3, 0.3)),
+            selected_color: materials.add(make_material(0.9, 0.1, 0.1)),
+            black_color: materials.add(make_material(0., 0.1, 0.1)),
+            white_color: materials.add(make_material(1., 0.9, 0.9)),
         }
     }
 }
@@ -98,15 +104,30 @@ struct SelectedSquare {
 struct SelectedPiece {
     entity: Option<Entity>,
 }
-pub struct PlayerTurn(pub PieceColor);
-impl Default for PlayerTurn {
+
+pub enum StatusType {
+    Move,
+    Win,
+}
+
+pub struct GameStatus {
+    pub color: PieceColor,
+    pub status_type: StatusType,
+}
+impl Default for GameStatus {
     fn default() -> Self {
-        Self(PieceColor::White)
+        Self {
+            color: PieceColor::White,
+            status_type: StatusType::Move,
+        }
     }
 }
-impl PlayerTurn {
-    fn change(&mut self) {
-        self.0 = self.0.other();
+impl GameStatus {
+    fn change(&mut self, pieces: &[Piece]) {
+        match is_check_mate_on(pieces, self.color.other()) {
+            false => self.color = self.color.other(),
+            true => self.status_type = StatusType::Win,
+        }
     }
 }
 
@@ -140,7 +161,7 @@ fn select_square(
 fn select_piece(
     selected_square: Res<SelectedSquare>,
     mut selected_piece: ResMut<SelectedPiece>,
-    turn: Res<PlayerTurn>,
+    game_status: Res<GameStatus>,
     squares_query: Query<&Square>,
     pieces_query: Query<(Entity, &Piece)>,
 ) {
@@ -161,7 +182,7 @@ fn select_piece(
     if selected_piece.entity.is_none() {
         // Select the piece in the currently selected square
         for (piece_entity, piece) in pieces_query.iter() {
-            if piece.pos == square.pos && piece.color == turn.0 {
+            if piece.pos == square.pos && piece.color == game_status.color {
                 // piece_entity is now the entity in the same square
                 selected_piece.entity = Some(piece_entity);
                 break;
@@ -174,7 +195,7 @@ fn move_piece(
     mut commands: Commands,
     selected_square: Res<SelectedSquare>,
     selected_piece: Res<SelectedPiece>,
-    mut turn: ResMut<PlayerTurn>,
+    mut turn: ResMut<GameStatus>,
     squares_query: Query<&Square>,
     mut pieces_query: Query<(Entity, &mut Piece)>,
     mut reset_selected_event: EventWriter<ResetSelectedEvent>,
@@ -219,7 +240,7 @@ fn move_piece(
     // Move piece
     piece.pos = square.pos;
     piece.has_moved = true;
-    turn.change();
+    turn.change(&pieces_after_move);
 
     // Check if a piece of the opposite color exists in this square and despawn it
     if let Some((entity, _)) = pieces_query
@@ -263,7 +284,7 @@ impl Plugin for BoardPlugin {
         app.init_resource::<SelectedSquare>()
             .init_resource::<SelectedPiece>()
             .init_resource::<SquareMaterials>()
-            .init_resource::<PlayerTurn>()
+            .init_resource::<GameStatus>()
             .add_event::<ResetSelectedEvent>()
             .add_startup_system(create_board.system())
             .add_system(color_squares.system())
