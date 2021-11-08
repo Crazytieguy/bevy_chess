@@ -1,5 +1,9 @@
-use crate::{board::*, pieces::*};
 use bevy::prelude::*;
+
+use crate::{
+    board::{GameStatus, StatusType},
+    pieces::PieceColor,
+};
 
 // Component to mark the Text entity
 struct StatusText;
@@ -49,7 +53,7 @@ fn init_next_move_text(
 }
 
 /// Update text with the correct turn
-fn update_status(game_status: Res<GameStatus>, mut text_query: Query<(&mut Text, &StatusText)>) {
+fn update_status(game_status: Res<GameStatus>, mut text_query: Query<&mut Text, With<StatusText>>) {
     if !game_status.is_changed() {
         return;
     }
@@ -59,9 +63,9 @@ fn update_status(game_status: Res<GameStatus>, mut text_query: Query<(&mut Text,
     };
     let text_value = match game_status.status_type {
         StatusType::Win => format!("{} Wins!", color_text),
-        false => format!("Next move: {}", color_text),
+        StatusType::Move => format!("Next move: {}", color_text),
     };
-    if let Some((mut text, _tag)) = text_query.iter_mut().next() {
+    if let Some(mut text) = text_query.iter_mut().next() {
         text.sections[0].value = text_value;
     }
 }

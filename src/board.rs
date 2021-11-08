@@ -123,7 +123,7 @@ impl Default for GameStatus {
     }
 }
 impl GameStatus {
-    fn change(&mut self, pieces: &[Piece]) {
+    fn update(&mut self, pieces: &[Piece]) {
         match is_check_mate_on(pieces, self.color.other()) {
             false => self.color = self.color.other(),
             true => self.status_type = StatusType::Win,
@@ -240,7 +240,7 @@ fn move_piece(
     // Move piece
     piece.pos = square.pos;
     piece.has_moved = true;
-    turn.change(&pieces_after_move);
+    turn.update(&pieces_after_move);
 
     // Check if a piece of the opposite color exists in this square and despawn it
     if let Some((entity, _)) = pieces_query
