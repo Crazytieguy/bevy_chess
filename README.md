@@ -1,13 +1,9 @@
 # Chess in Bevy
 
-This is an implementation of the classic Chess game in the [Bevy](https://github.com/bevyengine/bevy) game engine, using the [bevy_mod_picking](https://github.com/aevyrie/bevy_mod_picking/) plugin.
+This is an implementation of Chess in the [Bevy](https://github.com/bevyengine/bevy) game engine.
 
-[Here's](https://caballerocoll.com/blog/bevy-chess-tutorial/) a tutorial on the game.
+I started by following [this tutorial](https://caballerocoll.com/blog/bevy-chess-tutorial/), and then branched off.
 
 Here's a recording of the game:
 
 ![Chess](./chess.gif)
-
-## License
-
-Bevy Chess is published under a [MIT License](/LICENSE.md).
